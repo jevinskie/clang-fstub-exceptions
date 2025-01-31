@@ -1,9 +1,8 @@
-#include <iostream>
 #include <map>
 #include <regex>
 #include <set>
-#include <sstream>
 #include <string>
+#include <string_view>
 #include <type_traits>
 #include <vector>
 
@@ -24,11 +23,40 @@
 #include <llvm/Support/raw_ostream.h>
 
 #include <fmt/format.h>
+#include <fmt/ostream.h>
 #include <fmt/ranges.h>
+#include <fmt/std.h>
 
 using namespace clang;
 using namespace ast_matchers;
 using namespace transformer;
+
+static_assert(std::ranges::range<clang::tooling::Replacements>);
+
+template <> struct fmt::formatter<clang::tooling::Replacement> {
+    constexpr auto parse(fmt::format_parse_context &ctx) -> decltype(ctx.begin()) {
+        return ctx.begin();
+    }
+    constexpr auto format(const clang::tooling::Replacement &r, fmt::format_context &ctx) const
+        -> fmt::format_context::iterator {
+        fmt::format_to(ctx.out(), "Replacement {{ ");
+        fmt::format_to(ctx.out(), "{}", r.toString());
+        fmt::format_to(ctx.out(), " }}");
+        return ctx.out();
+    }
+};
+
+#if 0
+template <> struct fmt::formatter<clang::tooling::Replacements> : fmt::formatter<fmt::string_view> {
+    constexpr auto format(const clang::tooling::Replacements &rs, fmt::format_context &ctx) const
+        -> fmt::format_context::iterator {
+        fmt::format_to(ctx.out(), "Replacements {{ ");
+        fmt::format_to(ctx.out(), "{}", fmt::join(rs, " "));
+        fmt::format_to(ctx.out(), " }}");
+        return ctx.out();
+    }
+};
+#endif
 
 // https://github.com/shao-hua-li/UBGen
 
@@ -246,17 +274,24 @@ bool applyReplacements(clang::tooling::RefactoringTool &Tool) {
 }
 
 template <typename InstrTool> int runToolOnCode(clang::tooling::RefactoringTool &Tool) {
-    InstrTool Instr(Tool.getReplacements());
+    auto &replacements = Tool.getReplacements();
+    fmt::print("init replacements: {}\n", replacements);
+    InstrTool Instr(replacements);
     ast_matchers::MatchFinder Finder;
     Instr.registerMatchers(Finder);
     std::unique_ptr<tooling::FrontendActionFactory> Factory = tooling::newFrontendActionFactory(&Finder);
 
     auto Ret = Tool.run(Factory.get());
-    if (!Ret)
+    if (!Ret) {
+        fmt::print("mid replacements: {}\n", Tool.getReplacements());
         if (!applyReplacements(Tool)) {
+            fmt::print("error replacements: {}\n", Tool.getReplacements());
             llvm::errs() << "Failed to overwrite the input files.\n";
             return 1;
         }
+    }
+
+    fmt::print("good replacements: {}\n", Tool.getReplacements());
 
     return Ret;
 }
